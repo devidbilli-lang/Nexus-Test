@@ -1401,31 +1401,13 @@ function DashboardQualita({ linea, linee, skuList, difettiList=[], onEsci }) {
         setErr("");
     const nKoStr = noteKo.filter(r=>r.p).map(r=>r.p+(r.q?" ("+r.q+"pz)":"")).join(" | ")||"";
     const nMiglStr = noteMigl.filter(r=>r.p).map(r=>r.p+(r.q?" ("+r.q+"pz)":"")).join(" | ")||"";
-    // Spinner durante il salvataggio
-    const btnSalva = document.querySelector("button[data-salva-qualita]");
-    if(btnSalva) btnSalva.disabled = true;
     setMsg("⏳ Salvataggio in corso...");
     try {
       await fetchConRetry(APPS_SCRIPT_URL+"?action=qualita&linea="+encodeURIComponent(lineaEffettiva||"")+"&sku="+encodeURIComponent(sku)+"&ok="+encodeURIComponent(ok||0)+"&ko="+encodeURIComponent(ko||0)+"&migliorabili="+encodeURIComponent(migl||0)+"&noteKo="+encodeURIComponent(nKoStr)+"&noteMigl="+encodeURIComponent(nMiglStr)+"&obReale="+encodeURIComponent(obRealeQ||"")+"&obTeorico="+encodeURIComponent(obTeoricoQ||""), 5, 1000);
-      // Verifica che Sheets abbia salvato interrogando leggiqualita
-      let salvato = false;
-      for(let i=0;i<10;i++){
-        await new Promise(r=>setTimeout(r,2000));
-        try {
-          const r2 = await fetch(APPS_SCRIPT_URL+"?action=leggiqualita");
-          const j2 = await r2.json();
-          if(j2.ok&&j2.data.qualita){
-            const oggi = new Date().toISOString().slice(0,10);
-            const trovato = j2.data.qualita.some(q=>q.sku===sku&&q.linea===lineaEffettiva&&(q.data||"").includes(oggi.split("-").reverse().join("/")));
-            if(trovato){ salvato=true; break; }
-          }
-        } catch(e){}
-      }
-      setMsg(salvato?"✓ Salvato e confermato!":"✓ Inviato (verifica su Sheets)");
+      setMsg("✓ Salvato!");
       setOk(""); setKo(""); setMigl(""); setNoteKo([{p:"",q:"",cerca:""}]); setNoteMigl([{p:"",q:"",cerca:""}]);
     } catch(e){ setErr("Errore salvataggio. Riprova."); setMsg(null); }
-    if(btnSalva) btnSalva.disabled = false;
-        setTimeout(()=>setMsg(null), 3000);
+    setTimeout(()=>setMsg(null), 3000);
       }
     });
     return;
@@ -1963,19 +1945,25 @@ function Dashboard({ sessioni, linee, skuList, operatori, rampeSheets, isAdmin, 
         const j2 = await r2.json();
         if(j2.ok&&j2.data.qualita){
           const oggi = new Date().toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"});
+          console.log("[QUALITA MAP] oggi:", oggi, "righe totali:", j2.data.qualita.length);
+          console.log("[QUALITA MAP] prime 3 righe:", j2.data.qualita.slice(0,3).map(q=>({data:q.data,linea:q.linea,sku:q.sku,ok:q.ok})));
           const map = {};
-          j2.data.qualita.filter(q=>(q.data||"").includes(oggi.slice(0,5))||q.data===oggi).forEach(q=>{
+          // Accetta qualsiasi riga di oggi indipendentemente dal formato data
+          j2.data.qualita.forEach(q=>{
+            const dataQ = (q.data||"").toString().trim();
+            // Normalizza: accetta dd/MM/yyyy, d/M/yyyy, yyyy-MM-dd
+            const isOggi = dataQ===oggi || dataQ.slice(0,5)===oggi.slice(0,5) ||
+              (()=>{ try{ const d=new Date(dataQ); return d.toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric"})===oggi; }catch{return false;} })();
+            if(!isOggi) return;
             const skuQ = q.sku||"";
             const lineaQ = q.linea||"";
-            // Salva con chiave sia per nome linea che per ID linea
-            [lineaQ].forEach(lk=>{
-              const k = lk+"_"+skuQ;
-              if(!map[k]) map[k]={ok:0,ko:0,migl:0};
-              map[k].ok += Number(q.ok)||0;
-              map[k].ko += Number(q.ko)||0;
-              map[k].migl += Number(q.migliorabili)||0;
-            });
+            const k = lineaQ+"_"+skuQ;
+            if(!map[k]) map[k]={ok:0,ko:0,migl:0};
+            map[k].ok += Number(q.ok)||0;
+            map[k].ko += Number(q.ko)||0;
+            map[k].migl += Number(q.migliorabili)||0;
           });
+          console.log("[QUALITA MAP] chiavi map:", Object.keys(map));
           setQualitaPerSku(map);
         }
       } catch(e){}
